@@ -522,7 +522,7 @@ async function askAI(prompt,maxTokens=600){
       'Authorization':'Bearer '+key
     },
     body:JSON.stringify({
-      model:'llama-3.1-8b-instant',
+      model:'openai/gpt-oss-20b',
       messages:[
         {role:'system',content:'Ты Крипто Нострадамус — мистический аналитик криптовалют. Давай конкретные полезные советы на русском языке. Используй магическую терминологию и эмодзи. Будь краток и информативен.'},
         {role:'user',content:prompt}
@@ -531,13 +531,28 @@ async function askAI(prompt,maxTokens=600){
       max_tokens:maxTokens
     })
   });
-  const data=await r.json();
-  if(!r.ok){
-    const msg=data?.error?.message||'API_ERROR';
-    if(msg.includes('model'))throw new Error('Модель недоступна. Проверьте ключ Groq.');
-    throw new Error(msg);
+  let data;
+  try{
+    data=await r.json();
+  }catch(parseError){
+    throw new Error('Groq вернул ответ в неизвестном формате. Попробуйте ещё раз.');
   }
-  return data.choices[0].message.content.trim();
+
+  if(!r.ok){
+    const msg=data?.error?.message||'Нет подробного описания ошибки';
+    if(r.status===401)throw new Error('Groq отклонил API-ключ (401). Нажмите 🔑, введите действующий ключ и сохраните его.');
+    if(r.status===403)throw new Error('Groq запретил доступ (403). Проверьте доступность модели и состояние аккаунта.');
+    if(r.status===404)throw new Error('Модель или адрес API не найдены (404): '+msg);
+    if(r.status===429)throw new Error('Превышен лимит запросов Groq (429). Подождите немного и попробуйте снова.');
+    if(r.status===400)throw new Error('Groq отклонил параметры запроса (400): '+msg);
+    throw new Error('Ошибка Groq API ('+r.status+'): '+msg);
+  }
+
+  const answer=data?.choices?.[0]?.message?.content;
+  if(typeof answer!=='string'||!answer.trim()){
+    throw new Error('Groq ответил, но не вернул текст анализа. Попробуйте ещё раз.');
+  }
+  return answer.trim();
 }
 
 // ══ PRICES (Binance) ══
@@ -636,7 +651,7 @@ async function loadNews(){
           method:'POST',
           headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
           body:JSON.stringify({
-            model:'llama-3.1-8b-instant',
+            model:'openai/gpt-oss-20b',
             messages:[
               {role:'system',content:'Переводи заголовки крипто-новостей на русский. Отвечай ТОЛЬКО строками разделёнными |SPLIT|, без нумерации, без пояснений.'},
               {role:'user',content:'Переведи каждый заголовок на русский:\n'+titles}
@@ -680,7 +695,7 @@ async function loadNews(){
             method:'POST',
             headers:{'Content-Type':'application/json','Authorization':'Bearer '+key2},
             body:JSON.stringify({
-              model:'llama-3.1-8b-instant',
+              model:'openai/gpt-oss-20b',
               messages:[
                 {role:'system',content:'Переводи заголовки крипто-новостей на русский. Отвечай ТОЛЬКО строками разделёнными |SPLIT|, без нумерации, без пояснений.'},
                 {role:'user',content:'Переведи каждый заголовок на русский:\n'+titles}
@@ -1049,7 +1064,7 @@ function calcATR(data,p=14){
 }
 
 async function getSpiritSignal(c){
-  const r=await fetch('https://api.binance.com/api/v3/klines?symbol='+c.id+'&interval=1h&limit=100');
+  const r=await fetch('https://api.binance.com/api/v3/klines?symbol='+c.id+'&interval=1h&limit=250');
   const data=await r.json();
   const closes=data.map(d=>parseFloat(d[4]));
   const ohlc=data.map(d=>[parseFloat(d[1]),parseFloat(d[2]),parseFloat(d[3]),parseFloat(d[4]),parseFloat(d[4])]);
